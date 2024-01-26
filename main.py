@@ -2,6 +2,7 @@ import vk_api
 from aiogram import Bot, Dispatcher, types, executor
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 import asyncio
+import sqlite3
 import base
 import parse
 from config import *
@@ -62,6 +63,107 @@ async def process_callback_button(callback_query: types.CallbackQuery):
     )
 
     await callback_query.answer()
+
+
+# Количество судей на одной странице
+PER_PAGE = 10
+
+# Функция для получения судей на определенной странице
+def get_judges_page(judges, page):
+    start_index = (page - 1) * PER_PAGE
+    end_index = start_index + PER_PAGE
+    return judges[start_index:end_index]
+
+# Функция для форматирования статистики
+def format_stat(judges):
+    return '\n'.join([f'{judge[0]}: {judge[1]}' for judge in judges])
+
+# Функция обработки команды /stat
+@dp.message_handler(commands=['stat'])
+async def stat(message: types.Message):
+    conn = sqlite3.connect('base.db')
+    cursor = conn.cursor()
+
+    query = "SELECT name, AVG(score) FROM main GROUP BY name"
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    if not rows:
+        await message.reply('Статистика пуста!')
+        return
+
+    # Создание списка судей
+    judges = [(row[0], row[1]) for row in rows]
+
+    # Сохранение списка судей в контексте
+    context = dp.current_state(chat=message.chat.id, user=message.from_user.id)
+    await context.update_data(judges=judges)
+
+    # Извлечение первой страницы судей
+    page = 1
+    judges_page = get_judges_page(judges, page)
+    stat_message = format_stat(judges_page)
+
+    # Создание клавиатуры
+    buttons = []
+    if len(judges) > PER_PAGE:
+        buttons.append(types.InlineKeyboardButton('Вперед', callback_data='next'))
+
+    reply_markup = types.InlineKeyboardMarkup([[button] for button in buttons])
+
+    # Отправка сообщения со статистикой и клавиатурой
+    await message.reply(stat_message, reply_markup=reply_markup)
+
+@dp.callback_query_handler()
+async def inline_buttons_callback(callback_query: types.CallbackQuery):
+    callback_data = callback_query.data
+
+    if callback_data == 'next':
+        await callback_query.answer('Переходим на следующую страницу...')
+
+        # Получение контекста с сохраненными данными
+        context = dp.current_state(chat=callback_query.message.chat.id, user=callback_query.from_user.id)
+        data = await context.get_data()
+
+        # Извлечение текущей страницы
+        page = data.get('page', 1)
+
+        # Получение списка судей
+        judges = data.get('judges')
+
+        # Переход на следующую страницу
+        page += 1
+        judges_page = get_judges_page(judges, page)
+
+        if judges_page:
+            stat_message = format_stat(judges_page)
+
+            # Обновление сообщения со статистикой
+            await bot.edit_message_text(
+                chat_id=callback_query.message.chat.id,
+                message_id=callback_query.message.message_id,
+                text=stat_message,
+                reply_markup=get_keyboard(page, judges, len(judges))
+            )
+            await context.update_data(page=page)
+
+        else:
+            await bot.send_message(
+                chat_id=callback_query.message.chat.id,
+                text='Статистика закончилась!'
+            )
+
+    else:
+         await callback_query.answer('Произошла ошибка!')
+
+def get_keyboard(page, judges, total_judges):
+    buttons = []
+    if page > 1:
+        buttons.append(types.InlineKeyboardButton('Назад', callback_data='prev'))
+    if page * PER_PAGE < total_judges:
+        buttons.append(types.InlineKeyboardButton('Вперед', callback_data='next'))
+
+    return types.InlineKeyboardMarkup([[button] for button in buttons])
 
 # Функция для запуска мониторинга постов из группы ВКонтакте
 async def start_monitoring():
