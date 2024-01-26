@@ -33,17 +33,35 @@ async def start(message: types.Message):
     await base.add_chat_id(message.chat.id)
     await message.reply("Привет! Я буду рассылать тебе посты из группы ВКонтакте.")
 
-# Обработка команды /start
-@dp.message_handler(commands=['start'])
-async def start(message: types.Message):
-    await base.add_chat_id(message.chat.id)
-    await message.reply("Привет! Я буду рассылать тебе посты из группы ВКонтакте.")
-
 # Функция для рассылки поста пользователям
 async def send_post_to_users(post):
     users = await base.get_all_chat_ids() 
     for user_id in users:
         await bot.send_message(chat_id=user_id, text=str(post))
+        for name in post.jury:
+            keyboard = types.InlineKeyboardMarkup(row_width=5)  # Создание объекта клавиатуры
+
+            # Создание callback кнопок с числами от 1 до 10
+            buttons = [types.InlineKeyboardButton(str(i), callback_data=f'{i}_{name}') for i in range(1, 11)]
+            keyboard.add(*buttons)
+
+            await bot.send_message(chat_id=user_id, text=str(post), reply_markup=keyboard)
+
+# Обработчик callback кнопок
+@dp.callback_query_handler(lambda c: True)
+async def process_callback_button(callback_query: types.CallbackQuery):
+    selected_number = callback_query.data.split('_')[0]
+    await base.insert_row(callback_query.data.split('_')[1], int(callback_query.data.split('_')[0]))
+
+    reply_markup = types.ReplyKeyboardRemove()  # Создание объекта для удаления клавиатуры
+
+    await bot.send_message(
+        callback_query.from_user.id,
+        f"Вы выбрали число: {selected_number}",
+        reply_markup=reply_markup
+    )
+
+    await callback_query.answer()
 
 # Функция для запуска мониторинга постов из группы ВКонтакте
 async def start_monitoring():
