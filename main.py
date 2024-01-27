@@ -81,13 +81,7 @@ def format_stat(judges):
 # Функция обработки команды /stat
 @dp.message_handler(commands=['stat'])
 async def stat(message: types.Message):
-    conn = sqlite3.connect('base.db')
-    cursor = conn.cursor()
-
-    query = "SELECT name, AVG(score) FROM main GROUP BY name"
-    cursor.execute(query)
-    rows = cursor.fetchall()
-
+    rows = base.get_stat_from_db()
     if not rows:
         await message.reply('Статистика пуста!')
         return

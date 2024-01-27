@@ -71,3 +71,17 @@ async def get_all_chat_ids():
         result = await cursor.fetchall()
         chat_ids = [record[0] for record in result]
         return chat_ids
+    
+# Функция для получения статистики из базы данных
+async def get_stat_from_db():
+    async with aiosqlite.connect('base.db') as conn:
+        cursor = await conn.execute("SELECT name, AVG(score) FROM main GROUP BY name")
+        rows = await cursor.fetchall()
+
+    statistics = []
+    for row in rows:
+        name = row[0]
+        avg_score = row[1]
+        statistics.append((name, avg_score))
+
+    return statistics
