@@ -8,3 +8,13 @@ venv/
 config.ini
 
 .env
+
+# Игнорирование баз данных SQLite
+*.db
+
+# Игнорирование баз данных MySQL
+*.mysql
+*.sql
+*.sql.gz
+*.sql.xz
+

@@ -125,7 +125,7 @@ async def start_monitoring():
         await asyncio.sleep(60)
 
 async def on_startup(_):
-    # asyncio.ensure_future(start_monitoring())
+    asyncio.ensure_future(start_monitoring())
     await base.create_table()
     await base.create_users_table()
     # for i in range(11):
