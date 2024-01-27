@@ -43,16 +43,16 @@ async def send_post_to_users(post):
             keyboard = types.InlineKeyboardMarkup(row_width=5)  # Создание объекта клавиатуры
 
             # Создание callback кнопок с числами от 1 до 10
-            buttons = [types.InlineKeyboardButton(str(i), callback_data=f'{i}_{name}') for i in range(1, 11)]
+            buttons = [types.InlineKeyboardButton(str(i), callback_data=f'score_{i}_{name}') for i in range(1, 11)]
             keyboard.add(*buttons)
 
             await bot.send_message(chat_id=user_id, text=str(post), reply_markup=keyboard)
 
 # Обработчик callback кнопок
-@dp.callback_query_handler(lambda c: True)
+@dp.callback_query_handler(lambda c: c.data.split('_')[0] == 'score')
 async def process_callback_button(callback_query: types.CallbackQuery):
-    selected_number = callback_query.data.split('_')[0]
-    await base.insert_row(callback_query.data.split('_')[1], int(callback_query.data.split('_')[0]))
+    selected_number = callback_query.data.split('_')[1]
+    await base.insert_row(callback_query.data.split('_')[2], int(callback_query.data.split('_')[1]))
 
     reply_markup = types.ReplyKeyboardRemove()  # Создание объекта для удаления клавиатуры
 
@@ -64,100 +64,53 @@ async def process_callback_button(callback_query: types.CallbackQuery):
 
     await callback_query.answer()
 
+# Обработчик callback кнопок
+@dp.callback_query_handler(lambda c: c.data.split('_')[0] == 'page')
+async def process_callback_button_page(callback: types.CallbackQuery):
+    index = int(callback.data.split('_')[1])
+    await callback.answer(f'Страница {index + 1}')
+    await send_page(callback.message, index)
 
 # Количество судей на одной странице
 PER_PAGE = 10
-
-# Функция для получения судей на определенной странице
-def get_judges_page(judges, page):
-    start_index = (page - 1) * PER_PAGE
-    end_index = start_index + PER_PAGE
-    return judges[start_index:end_index]
 
 # Функция для форматирования статистики
 def format_stat(judges):
     return '\n'.join([f'{judge[0]}: {judge[1]}' for judge in judges])
 
-# Функция обработки команды /stat
-@dp.message_handler(commands=['stat'])
-async def stat(message: types.Message):
-    rows = base.get_stat_from_db()
+async def send_page(message, index):
+    rows = await base.get_stat_from_db()
     if not rows:
         await message.reply('Статистика пуста!')
         return
-
-    # Создание списка судей
-    judges = [(row[0], row[1]) for row in rows]
-
-    # Сохранение списка судей в контексте
-    context = dp.current_state(chat=message.chat.id, user=message.from_user.id)
-    await context.update_data(judges=judges)
-
-    # Извлечение первой страницы судей
-    page = 1
-    judges_page = get_judges_page(judges, page)
-    stat_message = format_stat(judges_page)
+    len_pages = len(rows) // PER_PAGE 
+    if len(rows) % PER_PAGE > 0:
+        len_pages += 1
+    state = rows[index * PER_PAGE: (index + 1) * PER_PAGE]
+    buttonprev = types.InlineKeyboardButton('prev', callback_data=f'page_{index - 1}')
+    buttonnext = types.InlineKeyboardButton('next', callback_data=f'page_{index + 1}')
 
     # Создание клавиатуры
-    buttons = []
-    if len(judges) > PER_PAGE:
-        buttons.append(types.InlineKeyboardButton('Вперед', callback_data='next'))
-
-    reply_markup = types.InlineKeyboardMarkup([[button] for button in buttons])
-
-    # Отправка сообщения со статистикой и клавиатурой
-    await message.reply(stat_message, reply_markup=reply_markup)
-
-@dp.callback_query_handler()
-async def inline_buttons_callback(callback_query: types.CallbackQuery):
-    callback_data = callback_query.data
-
-    if callback_data == 'next':
-        await callback_query.answer('Переходим на следующую страницу...')
-
-        # Получение контекста с сохраненными данными
-        context = dp.current_state(chat=callback_query.message.chat.id, user=callback_query.from_user.id)
-        data = await context.get_data()
-
-        # Извлечение текущей страницы
-        page = data.get('page', 1)
-
-        # Получение списка судей
-        judges = data.get('judges')
-
-        # Переход на следующую страницу
-        page += 1
-        judges_page = get_judges_page(judges, page)
-
-        if judges_page:
-            stat_message = format_stat(judges_page)
-
-            # Обновление сообщения со статистикой
-            await bot.edit_message_text(
-                chat_id=callback_query.message.chat.id,
-                message_id=callback_query.message.message_id,
-                text=stat_message,
-                reply_markup=get_keyboard(page, judges, len(judges))
-            )
-            await context.update_data(page=page)
-
-        else:
-            await bot.send_message(
-                chat_id=callback_query.message.chat.id,
-                text='Статистика закончилась!'
-            )
-
+    if index > 0 and index < len_pages - 1:
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        keyboard.add(buttonprev, buttonnext)
+    elif index > 0:
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        keyboard.add(buttonprev)
+    elif index < len_pages - 1:
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        keyboard.add(buttonnext)
     else:
-         await callback_query.answer('Произошла ошибка!')
-
-def get_keyboard(page, judges, total_judges):
-    buttons = []
-    if page > 1:
-        buttons.append(types.InlineKeyboardButton('Назад', callback_data='prev'))
-    if page * PER_PAGE < total_judges:
-        buttons.append(types.InlineKeyboardButton('Вперед', callback_data='next'))
-
-    return types.InlineKeyboardMarkup([[button] for button in buttons])
+        keyboard = None
+    # Отправка сообщения с клавиатурой
+    # await message.reply(format_stat(state), reply_markup=keyboard)
+    await bot.edit_message_text(chat_id=message.chat.id, message_id=message.message_id, text=format_stat(state), reply_markup=keyboard)
+        
+# Функция обработки команды /stat
+@dp.message_handler(commands=['stat'])
+async def stat(message: types.Message):
+    message = await bot.send_message(chat_id=message.chat.id, text="Собираю статистику")
+    await send_page(message, 0)
 
 # Функция для запуска мониторинга постов из группы ВКонтакте
 async def start_monitoring():
@@ -172,9 +125,13 @@ async def start_monitoring():
         await asyncio.sleep(60)
 
 async def on_startup(_):
-    asyncio.ensure_future(start_monitoring())
+    # asyncio.ensure_future(start_monitoring())
     await base.create_table()
     await base.create_users_table()
+    # for i in range(11):
+    #     for j in 'fghjghjkghjhgkjhgjkgjkhgjghjkghjghkjgjkhgkhjgkjhgkjhgkjgjkhgtyiuysttbvxzxxcvqwtytyuiopmnbvbnbvdjfgasagcvbzaqwertyuiopasdfghjklzxcvbnm':
+    #         await base.insert_row(j, i)
+    print('finish start')
 
 # Запуск телеграм-бота
 if __name__ == '__main__':
